@@ -1,5 +1,5 @@
 -module(frequency).
--export([start/0,allocate/0,deallocate/1,stop/0, get_all/0]).
+-export([start/0,allocate/0,allocate/1,deallocate/1,stop/0, get_all/0, clear/0, clear/1]).
 -export([init/0]).
 
 start() ->
@@ -23,18 +23,37 @@ loop(Frequencies) ->
       {NewFrequencies, Reply} = allocate(Frequencies, Pid),
       Pid ! {reply, Reply},
       loop(NewFrequencies);
+
     {request, Pid , {deallocate, Freq}} ->
       NewFrequencies = deallocate(Frequencies, Freq),
       Pid ! {reply, ok},
       loop(NewFrequencies);
+
     {request, Pid, get_all} ->
       Pid ! {reply, Frequencies},
       loop(Frequencies);
+
+    {request, Pid, clear} ->
+      frequency ! {request, self(), get_all},
+      frequency ! {request, self(), get_all},
+      frequency ! {request, self(), get_all},
+      clear(Pid),
+      Pid ! {reply, cleared},
+      loop(Frequencies);
+
     {request, Pid, stop} ->
       Pid ! {reply, stopped}
   end.
 
 %% Functional interface
+
+allocate(Timeout) ->
+  frequency ! {request, self(), allocate},
+  receive
+    {reply, Reply} -> Reply
+  after Timeout ->
+    ok
+  end.
 
 allocate() ->
   frequency ! {request, self(), allocate},
@@ -52,6 +71,21 @@ get_all() ->
   frequency ! {request, self(), get_all},
   receive
     {reply, Reply} -> Reply
+  end.
+
+clear() ->
+  frequency ! {request, self(), clear},
+  receive
+    {reply, Reply} -> Reply
+  end.
+
+clear(Pid) ->
+  receive
+    Msg ->
+      Pid ! {"deleting message: ", Msg},
+      clear(Pid)
+  after 0 ->
+    ok
   end.
 
 stop() ->
@@ -104,8 +138,11 @@ deallocate({Free, Allocated}, Freq) ->
 % frequency:deallocate(10).
 % => ok
 % frequency:allocate().
+% frequency:allocate(1000).
 % => {ok,10}
 % frequency:get_all().
 % => {[11,12,13,14,15],[{10,<0.112.0>}]}
+% frequency:clear().
+% flush().
 % frequency:stop().
 % => stopped
