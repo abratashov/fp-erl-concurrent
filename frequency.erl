@@ -1,5 +1,6 @@
 -module(frequency).
--export([init/0,start/0]).
+-export([start/0,allocate/0,deallocate/1,stop/0, get_all/0]).
+-export([init/0]).
 
 start() ->
   register(frequency, spawn(frequency, init, [])).
@@ -31,6 +32,32 @@ loop(Frequencies) ->
       loop(Frequencies);
     {request, Pid, stop} ->
       Pid ! {reply, stopped}
+  end.
+
+%% Functional interface
+
+allocate() ->
+  frequency ! {request, self(), allocate},
+  receive
+    {reply, Reply} -> Reply
+  end.
+
+deallocate(Freq) ->
+  frequency ! {request, self(), {deallocate, Freq}},
+  receive
+    {reply, Reply} -> Reply
+  end.
+
+get_all() ->
+  frequency ! {request, self(), get_all},
+  receive
+    {reply, Reply} -> Reply
+  end.
+
+stop() ->
+  frequency ! {request, self(), stop},
+  receive
+    {reply, Reply} -> Reply
   end.
 
 %% The Internal Help Functions used to allocate and deallocate frequencies.
@@ -69,3 +96,16 @@ deallocate({Free, Allocated}, Freq) ->
 % Freq ! {request, self(), get_all}.
 % flush().
 
+% or
+
+% frequency:start().
+% frequency:allocate().
+% => {ok,10}
+% frequency:deallocate(10).
+% => ok
+% frequency:allocate().
+% => {ok,10}
+% frequency:get_all().
+% => {[11,12,13,14,15],[{10,<0.112.0>}]}
+% frequency:stop().
+% => stopped
