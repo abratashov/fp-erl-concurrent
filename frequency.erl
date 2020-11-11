@@ -1,3 +1,5 @@
+% https://stackoverflow.com/questions/6720472/erlang-and-process-flagtrap-exit-true
+
 -module(frequency).
 -export([start/0,allocate/0,allocate/1,deallocate/1,stop/0, get_all/0, clear/0, clear/1]).
 -export([init/0]).
@@ -8,6 +10,7 @@ start() ->
 %% These are the start functions used to create and initialize the server.
 
 init() ->
+  process_flag(trap_exit, true), % want to receive a message if child process terminates
   Frequencies = {get_frequencies(), []},
   loop(Frequencies).
 
@@ -42,7 +45,11 @@ loop(Frequencies) ->
       loop(Frequencies);
 
     {request, Pid, stop} ->
-      Pid ! {reply, stopped}
+      Pid ! {reply, stopped};
+
+    {'EXIT', Pid, _Reason} ->
+      NewFrequencies = exited(Frequencies, Pid),
+      loop(NewFrequencies)
   end.
 
 %% Functional interface
@@ -99,6 +106,7 @@ stop() ->
 allocate({[], Allocated}, _Pid) ->
   { {[], Allocated}, {error, no_frequency} };
 allocate({[Freq|Free], Allocated}, Pid) ->
+  link(Pid),
   case lists:keymember(Pid, 2, Allocated) of % [{10,<0.80.0>}]
     true ->
       { {[Freq|Free], Allocated}, {error, already_allocated} };
@@ -107,12 +115,17 @@ allocate({[Freq|Free], Allocated}, Pid) ->
   end.
 
 deallocate({Free, Allocated}, Freq) ->
-  case lists:keymember(Freq, 1, Allocated) of % [{10,<0.80.0>}]
-    true ->
-      NewAllocated=lists:keydelete(Freq, 1, Allocated),
-      {[Freq|Free],  NewAllocated};
-    _ ->
-      {Free, Allocated}
+  {value, { Freq, Pid} } = lists:keysearch(Freq, 1, Allocated),
+  unlink(Pid),
+  NewAllocated = lists:keydelete(Freq, 1, Allocated),
+  {[Freq|Free], NewAllocated}.
+
+exited({Free, Allocated}, Pid) ->
+  case lists:keysearch(Pid, 2, Allocated) of % avoiding the race condition with deallocation
+    {value, {Freq, Pid}} ->
+      NewAllocated = lists:keydelete(Freq, 1, Allocated),
+      {[Freq|Free], NewAllocated};
+    false -> {Free, Allocated}
   end.
 
 % frequency:start().
