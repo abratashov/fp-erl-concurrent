@@ -1,8 +1,20 @@
 % https://stackoverflow.com/questions/6720472/erlang-and-process-flagtrap-exit-true
 
 -module(frequency).
--export([start/0,allocate/0,allocate/1,deallocate/1,stop/0, get_all/0, clear/0, clear/1]).
--export([init/0]).
+-export([
+  allocate/0,
+  allocate/1,
+  clear/0,
+  clear/1,
+  deallocate/1,
+  get_all/0,
+  init/0,
+  inject/1,
+  inject/2,
+  loop/1,
+  start/0,
+  stop/0
+]).
 
 start() ->
   register(frequency, spawn(frequency, init, [])).
@@ -25,7 +37,12 @@ loop(Frequencies) ->
     {request, Pid, allocate} ->
       {NewFrequencies, Reply} = allocate(Frequencies, Pid),
       Pid ! {reply, Reply},
-      loop(NewFrequencies);
+      frequency:loop(NewFrequencies);
+
+    {request, Pid, {inject, Freqs}} ->
+      NewFrequencies = inject(Frequencies, Freqs),
+      Pid ! {reply, injected},
+      frequency:loop(NewFrequencies);
 
     {request, Pid , {deallocate, Freq}} ->
       NewFrequencies = deallocate(Frequencies, Freq),
@@ -34,7 +51,7 @@ loop(Frequencies) ->
 
     {request, Pid, get_all} ->
       Pid ! {reply, Frequencies},
-      loop(Frequencies);
+      frequency:loop(Frequencies);
 
     {request, Pid, clear} ->
       frequency ! {request, self(), get_all},
@@ -42,14 +59,14 @@ loop(Frequencies) ->
       frequency ! {request, self(), get_all},
       clear(Pid),
       Pid ! {reply, cleared},
-      loop(Frequencies);
+      frequency:loop(Frequencies);
 
     {request, Pid, stop} ->
       Pid ! {reply, stopped};
 
     {'EXIT', Pid, _Reason} ->
       NewFrequencies = exited(Frequencies, Pid),
-      loop(NewFrequencies)
+      frequency:loop(NewFrequencies)
   end.
 
 %% Functional interface
@@ -64,6 +81,12 @@ allocate(Timeout) ->
 
 allocate() ->
   frequency ! {request, self(), allocate},
+  receive
+    {reply, Reply} -> Reply
+  end.
+
+inject(Freqs) ->
+  frequency ! {request, self(), {inject, Freqs}},
   receive
     {reply, Reply} -> Reply
   end.
@@ -114,6 +137,9 @@ allocate({[Freq|Free], Allocated}, Pid) ->
       { {Free, [{Freq, Pid}|Allocated]}, {ok, Freq} }
   end.
 
+inject({Free, Allocated}, Freqs) ->
+  {[Freqs|Free] , Allocated}.
+
 deallocate({Free, Allocated}, Freq) ->
   {value, { Freq, Pid} } = lists:keysearch(Freq, 1, Allocated),
   unlink(Pid),
@@ -155,7 +181,10 @@ exited({Free, Allocated}, Pid) ->
 % => {ok,10}
 % frequency:get_all().
 % => {[11,12,13,14,15],[{10,<0.112.0>}]}
+% frequency:inject(11).
 % frequency:clear().
 % flush().
 % frequency:stop().
 % => stopped
+
+% code:soft_purge(ModuleName).
